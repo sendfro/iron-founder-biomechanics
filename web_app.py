@@ -1,5 +1,25 @@
+import os
+import sys
+import site
+
+# --- EMERGENCY CLOUD HOT-SWAP V3: THE PRIVATE ENGINE ---
+# Streamlit's global folder is corrupted. We bypass it by downloading a 
+# pristine, private copy of the AI vision engine directly into your user folder.
+try:
+    import cv2
+except ImportError:
+    # Clear the corrupted file from memory
+    if 'cv2' in sys.modules:
+        del sys.modules['cv2']
+    
+    # Download a clean copy privately, ignoring the corrupted system files
+    os.system(f"{sys.executable} -m pip install --user --ignore-installed opencv-python-headless opencv-contrib-python-headless")
+    
+    # Force Python to look in your private folder first
+    sys.path.insert(0, site.getusersitepackages())
+    import cv2
+
 import streamlit as st
-import cv2
 import mediapipe as mp
 import numpy as np
 import tempfile
