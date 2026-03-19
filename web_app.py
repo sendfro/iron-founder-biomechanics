@@ -1,8 +1,24 @@
+import subprocess
+import sys
+
+# --- EMERGENCY CLOUD HOT-SWAP ---
+# Streamlit's Linux servers are currently broken. MediaPipe accidentally 
+# downloads a broken GUI version of OpenCV. We catch the crash and 
+# force-install the web version on the fly.
+try:
+    import cv2
+except ImportError:
+    print("Cloud engine crash detected. Hot-swapping AI vision drivers...")
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "opencv-python", "opencv-contrib-python"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python-headless", "opencv-contrib-python-headless"])
+    import cv2
+
 import streamlit as st
-import cv2
 import mediapipe as mp
 import numpy as np
 import tempfile
+
+# --- UI Setup ---
 
 # --- UI Setup ---
 st.set_page_config(page_title="Iron Founder Biomechanics", layout="wide")
