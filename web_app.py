@@ -1,13 +1,5 @@
-import subprocess
-import sys
-
-# --- EMERGENCY CLOUD HOT-SWAP V2 ---
-# We force the uninstall, but ignore errors if it's already gone.
-subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "opencv-python", "opencv-contrib-python"])
-subprocess.run([sys.executable, "-m", "pip", "install", "opencv-python-headless", "opencv-contrib-python-headless"])
-
-import cv2
 import streamlit as st
+import cv2
 import mediapipe as mp
 import numpy as np
 import tempfile
