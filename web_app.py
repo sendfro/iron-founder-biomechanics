@@ -1,6 +1,10 @@
-import os
-import sys
-import site
+import streamlit as st
+import cv2
+import mediapipe as mp
+import numpy as np
+import tempfile
+
+# --- UI Setup ---
 
 # --- EMERGENCY CLOUD HOT-SWAP V3: THE PRIVATE ENGINE ---
 # Streamlit's global folder is corrupted. We bypass it by downloading a 
