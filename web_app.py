@@ -1,10 +1,6 @@
-import streamlit as st
-import cv2
-import mediapipe as mp
-import numpy as np
-import tempfile
-
-# --- UI Setup ---
+import sys
+import os
+import site
 
 # --- EMERGENCY CLOUD HOT-SWAP V3: THE PRIVATE ENGINE ---
 # Streamlit's global folder is corrupted. We bypass it by downloading a 
@@ -27,6 +23,7 @@ import streamlit as st
 import mediapipe as mp
 import numpy as np
 import tempfile
+
 # --- UI Setup ---
 st.set_page_config(page_title="Iron Founder Biomechanics", layout="wide")
 st.title("Iron Founder AI: Motion Capture Engine")
@@ -74,6 +71,9 @@ if uploaded_file is not None:
             results = pose.process(image)
             image.flags.writeable = True
             
+            # Default fallback for drawing if pose detection fails
+            warning_color = (0, 255, 0)
+            
             try:
                 landmarks = results.pose_landmarks.landmark
                 
@@ -94,36 +94,46 @@ if uploaded_file is not None:
                 hip_tilt_angle = np.abs(hip_tilt_radians * 180.0 / np.pi)
                 pelvic_deviation = min(hip_tilt_angle, abs(180 - hip_tilt_angle))
                 
-                # Update Max Hip Drop Record
+                # --- UPDATE MAX HIP DROP RECORD ---
                 if pelvic_deviation > max_hip_drop:
                     max_hip_drop = pelvic_deviation
                 
-                warning_color = (0, 255, 0) 
+                # --- INDEPENDENT LOGIC: COUNT ERRORS ---
+                # Always check for pelvic drop
+                if pelvic_deviation > 8.0:
+                    hip_drop_error_count += 1
+                
+                # Always check for knee valgus when knees are bent
+                is_squatting = r_angle < 150 or l_angle < 150
+                if is_squatting and (knee_dist < (ankle_dist * 0.8)):
+                    valgus_error_count += 1
+
+                # --- UI DISPLAY LOGIC ---
                 warning_text = "SYSTEM ACTIVE: FORM SOLID"
                 
-                if r_angle < 150 or l_angle < 150:
+                if is_squatting:
                     warning_text = "MODE: SQUAT AUDIT"
                     if knee_dist < (ankle_dist * 0.8):
                         warning_color = (255, 0, 0) 
                         warning_text = "WARNING: KNEE VALGUS DETECTED"
-                        valgus_error_count += 1 # Log the error
                 else:
                     warning_text = f"MODE: GAIT AUDIT (Tilt: {int(pelvic_deviation)} deg)"
                     if pelvic_deviation > 8.0:
                         warning_color = (255, 165, 0) 
                         warning_text = f"WARNING: PELVIC DROP ({int(pelvic_deviation)} DEG)"
-                        hip_drop_error_count += 1 # Log the error
                 
                 cv2.putText(image, warning_text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, warning_color, 2, cv2.LINE_AA)
                 
             except:
                 pass
             
-            mp_drawing.draw_landmarks(
-                image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-                mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2),
-                mp_drawing.DrawingSpec(color=warning_color, thickness=2, circle_radius=2)
-            )
+            # Draw MediaPipe Landmarks
+            if results.pose_landmarks:
+                mp_drawing.draw_landmarks(
+                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                    mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2),
+                    mp_drawing.DrawingSpec(color=warning_color, thickness=2, circle_radius=2)
+                )
             
             stframe.image(image, channels="RGB", use_container_width=True)
 
