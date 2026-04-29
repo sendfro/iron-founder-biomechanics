@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 from datetime import datetime
 
@@ -32,6 +33,26 @@ st.warning(
 
 
 # -------------------------------------------------
+# CLIENT PROFILE SIDEBAR
+# -------------------------------------------------
+st.sidebar.header("Client Profile")
+
+client_name = st.sidebar.text_input("Client Name")
+client_age = st.sidebar.text_input("Client Age")
+client_activity = st.sidebar.text_input("Sport / Activity")
+coach_name = st.sidebar.text_input("Coach / Trainer Name")
+client_notes = st.sidebar.text_area("Session Notes")
+
+client_profile = {
+    "client_name": client_name,
+    "client_age": client_age,
+    "client_activity": client_activity,
+    "coach_name": coach_name,
+    "client_notes": client_notes,
+}
+
+
+# -------------------------------------------------
 # MOVEMENT TEST SETTINGS
 # -------------------------------------------------
 MOVEMENT_TESTS = {
@@ -62,7 +83,7 @@ MOVEMENT_TESTS = {
         "shoulder_tilt_limit": 6,
         "pelvic_drop_limit": 6,
         "trunk_lean_limit": 10,
-    }
+    },
 }
 
 
@@ -82,7 +103,7 @@ def calculate_angle(a, b, c):
         a[0] - b[0]
     )
 
-    angle = np.abs(radians * 180.0 / np.pi)
+    angle = abs(radians * 180.0 / np.pi)
 
     if angle > 180:
         angle = 360 - angle
@@ -121,12 +142,12 @@ def calculate_shoulder_tilt(left_shoulder, right_shoulder):
 def calculate_trunk_lean(left_shoulder, right_shoulder, left_hip, right_hip):
     mid_shoulder = [
         (left_shoulder[0] + right_shoulder[0]) / 2,
-        (left_shoulder[1] + right_shoulder[1]) / 2
+        (left_shoulder[1] + right_shoulder[1]) / 2,
     ]
 
     mid_hip = [
         (left_hip[0] + right_hip[0]) / 2,
-        (left_hip[1] + right_hip[1]) / 2
+        (left_hip[1] + right_hip[1]) / 2,
     ]
 
     dx = mid_shoulder[0] - mid_hip[0]
@@ -163,6 +184,31 @@ def save_chart_png(dataframe, title, filename):
     plt.close()
 
 
+def draw_wrapped_text(c, text, x, y, max_chars=90, line_height=0.18 * inch):
+    if not text:
+        return y
+
+    words = str(text).split()
+    lines = []
+    current_line = ""
+
+    for word in words:
+        if len(current_line + " " + word) <= max_chars:
+            current_line = (current_line + " " + word).strip()
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    if current_line:
+        lines.append(current_line)
+
+    for line in lines:
+        c.drawString(x, y, line)
+        y -= line_height
+
+    return y
+
+
 def create_pdf_report(report, chart_path, pdf_path):
     c = canvas.Canvas(pdf_path, pagesize=letter)
     width, height = letter
@@ -182,6 +228,49 @@ def create_pdf_report(report, chart_path, pdf_path):
 
     c.drawString(0.75 * inch, y, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     y -= 0.45 * inch
+
+    client = report.get("client_profile", {})
+
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(0.75 * inch, y, "Client Profile")
+    y -= 0.3 * inch
+
+    c.setFont("Helvetica", 10)
+
+    client_rows = [
+        ("Client Name", client.get("client_name", "")),
+        ("Client Age", client.get("client_age", "")),
+        ("Sport / Activity", client.get("client_activity", "")),
+        ("Coach / Trainer", client.get("coach_name", "")),
+    ]
+
+    has_client_info = False
+
+    for name, value in client_rows:
+        if value:
+            has_client_info = True
+            c.drawString(0.9 * inch, y, f"{name}: {value}")
+            y -= 0.23 * inch
+
+    if client.get("client_notes"):
+        has_client_info = True
+        y -= 0.1 * inch
+        c.drawString(0.9 * inch, y, "Session Notes:")
+        y -= 0.2 * inch
+        y = draw_wrapped_text(
+            c,
+            client.get("client_notes", ""),
+            0.9 * inch,
+            y,
+            max_chars=85,
+            line_height=0.18 * inch,
+        )
+
+    if not has_client_info:
+        c.drawString(0.9 * inch, y, "No client profile entered.")
+        y -= 0.25 * inch
+
+    y -= 0.3 * inch
 
     c.setFont("Helvetica-Bold", 14)
     c.drawString(0.75 * inch, y, "Summary Metrics")
@@ -205,10 +294,19 @@ def create_pdf_report(report, chart_path, pdf_path):
     ]
 
     for name, value in rows:
+        if y < 1.2 * inch:
+            c.showPage()
+            y = height - 0.75 * inch
+            c.setFont("Helvetica", 10)
+
         c.drawString(0.9 * inch, y, f"{name}: {value}")
         y -= 0.23 * inch
 
-    y -= 0.2 * inch
+    y -= 0.25 * inch
+
+    if y < 2.0 * inch:
+        c.showPage()
+        y = height - 0.75 * inch
 
     c.setFont("Helvetica-Bold", 14)
     c.drawString(0.75 * inch, y, "AI Notes")
@@ -217,14 +315,20 @@ def create_pdf_report(report, chart_path, pdf_path):
     c.setFont("Helvetica", 9)
 
     for note in report["notes"]:
-        text = c.beginText(0.9 * inch, y)
-        text.textLines(note)
-        c.drawText(text)
-        y -= 0.45 * inch
-
-        if y < 2.0 * inch:
+        if y < 1.5 * inch:
             c.showPage()
             y = height - 0.75 * inch
+            c.setFont("Helvetica", 9)
+
+        y = draw_wrapped_text(
+            c,
+            f"- {note}",
+            0.9 * inch,
+            y,
+            max_chars=95,
+            line_height=0.18 * inch,
+        )
+        y -= 0.15 * inch
 
     if os.path.exists(chart_path):
         if y < 3.5 * inch:
@@ -241,7 +345,7 @@ def create_pdf_report(report, chart_path, pdf_path):
             y,
             width=6.8 * inch,
             height=2.5 * inch,
-            preserveAspectRatio=True
+            preserveAspectRatio=True,
         )
 
     c.setFont("Helvetica", 8)
@@ -263,7 +367,7 @@ def evaluate_frame_by_test(
     pelvic_drop,
     trunk_lean,
     shoulder_tilt,
-    valgus_detected
+    valgus_detected,
 ):
     settings = MOVEMENT_TESTS[movement_test]
 
@@ -460,7 +564,7 @@ def generate_notes(report):
 # -------------------------------------------------
 # CORE VIDEO ANALYSIS
 # -------------------------------------------------
-def analyze_video(uploaded_file, movement_test, label="Video"):
+def analyze_video(uploaded_file, movement_test, label="Video", client_profile=None):
     suffix = os.path.splitext(uploaded_file.name)[-1]
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tfile:
@@ -470,8 +574,11 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
-        st.error(f"Could not open {label}.")
-        os.remove(video_path)
+        st.error(f"Could not open {label}. Try another MP4, MOV, or AVI file.")
+        try:
+            os.remove(video_path)
+        except Exception:
+            pass
         return None
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -502,7 +609,7 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
         model_complexity=1,
         smooth_landmarks=True,
         min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
+        min_tracking_confidence=0.5,
     ) as pose:
 
         while cap.isOpened():
@@ -551,7 +658,7 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
                     enough_visibility = visible_enough(
                         r_hip_vis, r_knee_vis, r_ankle_vis,
                         l_hip_vis, l_knee_vis, l_ankle_vis,
-                        r_shoulder_vis, l_shoulder_vis
+                        r_shoulder_vis, l_shoulder_vis,
                     )
 
                     if not enough_visibility:
@@ -578,19 +685,19 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
                             l_shoulder,
                             r_shoulder,
                             l_hip,
-                            r_hip
+                            r_hip,
                         )
 
                         shoulder_tilt = calculate_shoulder_tilt(
                             l_shoulder,
-                            r_shoulder
+                            r_shoulder,
                         )
 
                         valgus_detected = detect_valgus(
                             l_knee,
                             r_knee,
                             l_ankle,
-                            r_ankle
+                            r_ankle,
                         )
 
                         if valgus_detected:
@@ -607,7 +714,7 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
                             pelvic_drop=pelvic_drop,
                             trunk_lean=trunk_lean,
                             shoulder_tilt=shoulder_tilt,
-                            valgus_detected=valgus_detected
+                            valgus_detected=valgus_detected,
                         )
 
                         if fault_detected:
@@ -632,7 +739,7 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
                     0.8,
                     warning_color,
                     2,
-                    cv2.LINE_AA
+                    cv2.LINE_AA,
                 )
 
                 mp_drawing.draw_landmarks(
@@ -640,7 +747,7 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
                     results.pose_landmarks,
                     mp_pose.POSE_CONNECTIONS,
                     mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
-                    mp_drawing.DrawingSpec(color=warning_color, thickness=2, circle_radius=2)
+                    mp_drawing.DrawingSpec(color=warning_color, thickness=2, circle_radius=2),
                 )
 
             else:
@@ -671,6 +778,8 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
     report = {
         "label": label,
         "movement_test": movement_test,
+        "client_profile": client_profile or {},
+
         "fps": fps,
         "total_frames": total_frames,
         "processed_frames": processed_frames,
@@ -688,9 +797,9 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
         "max_shoulder_tilt": max(shoulder_tilt_history) if shoulder_tilt_history else 0,
         "avg_shoulder_tilt": float(np.mean(shoulder_tilt_history)) if shoulder_tilt_history else 0,
 
-        "valgus_rate": (valgus_errors / valid_frames * 100),
-        "movement_fault_rate": (movement_faults / valid_frames * 100),
-        "tracking_confidence_rate": ((processed_frames - low_confidence_frames) / processed_frames * 100),
+        "valgus_rate": valgus_errors / valid_frames * 100,
+        "movement_fault_rate": movement_faults / valid_frames * 100,
+        "tracking_confidence_rate": (processed_frames - low_confidence_frames) / processed_frames * 100,
 
         "pelvic_history": pelvic_history,
         "knee_flexion_history": knee_flexion_history,
@@ -704,6 +813,86 @@ def analyze_video(uploaded_file, movement_test, label="Video"):
 
 
 # -------------------------------------------------
+# REPORT HISTORY
+# -------------------------------------------------
+def save_report_history(report):
+    os.makedirs("reports", exist_ok=True)
+
+    history_path = "reports/report_history.csv"
+
+    client = report.get("client_profile", {})
+
+    row = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "client_name": client.get("client_name", ""),
+        "client_age": client.get("client_age", ""),
+        "client_activity": client.get("client_activity", ""),
+        "coach_name": client.get("coach_name", ""),
+        "movement_test": report.get("movement_test", ""),
+        "label": report.get("label", ""),
+
+        "max_pelvic_drop": report.get("max_pelvic_drop", 0),
+        "avg_pelvic_drop": report.get("avg_pelvic_drop", 0),
+        "max_knee_flexion": report.get("max_knee_flexion", 0),
+        "avg_knee_flexion": report.get("avg_knee_flexion", 0),
+        "max_trunk_lean": report.get("max_trunk_lean", 0),
+        "avg_trunk_lean": report.get("avg_trunk_lean", 0),
+        "max_shoulder_tilt": report.get("max_shoulder_tilt", 0),
+        "avg_shoulder_tilt": report.get("avg_shoulder_tilt", 0),
+        "valgus_rate": report.get("valgus_rate", 0),
+        "movement_fault_rate": report.get("movement_fault_rate", 0),
+        "tracking_confidence_rate": report.get("tracking_confidence_rate", 0),
+
+        "client_notes": client.get("client_notes", ""),
+        "ai_notes": json.dumps(report.get("notes", [])),
+    }
+
+    new_row_df = pd.DataFrame([row])
+
+    if os.path.exists(history_path):
+        old_df = pd.read_csv(history_path)
+        final_df = pd.concat([old_df, new_row_df], ignore_index=True)
+    else:
+        final_df = new_row_df
+
+    final_df.to_csv(history_path, index=False)
+
+
+def show_history_dashboard():
+    st.markdown("---")
+    st.header("Client Report History")
+
+    history_path = "reports/report_history.csv"
+
+    if os.path.exists(history_path):
+        history_df = pd.read_csv(history_path)
+
+        search_name = st.text_input("Search Client Name")
+
+        if search_name:
+            history_df = history_df[
+                history_df["client_name"].astype(str).str.contains(
+                    search_name,
+                    case=False,
+                    na=False,
+                )
+            ]
+
+        st.dataframe(history_df, use_container_width=True)
+
+        csv_data = history_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Full History CSV",
+            data=csv_data,
+            file_name="iron_founder_report_history.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("No saved reports yet.")
+
+
+# -------------------------------------------------
 # DISPLAY REPORT
 # -------------------------------------------------
 def show_report(report):
@@ -711,6 +900,21 @@ def show_report(report):
 
     st.info(f"Movement Test: **{report['movement_test']}**")
     st.caption(MOVEMENT_TESTS[report["movement_test"]]["description"])
+
+    client = report.get("client_profile", {})
+
+    if any(client.values()):
+        with st.expander("Client Profile", expanded=True):
+            col_a, col_b, col_c, col_d = st.columns(4)
+
+            col_a.write(f"**Name:** {client.get('client_name', '') or '—'}")
+            col_b.write(f"**Age:** {client.get('client_age', '') or '—'}")
+            col_c.write(f"**Activity:** {client.get('client_activity', '') or '—'}")
+            col_d.write(f"**Coach:** {client.get('coach_name', '') or '—'}")
+
+            if client.get("client_notes"):
+                st.write("**Session Notes:**")
+                st.write(client.get("client_notes"))
 
     movement_test = report["movement_test"]
 
@@ -758,16 +962,18 @@ def show_report(report):
     })
 
     if movement_test == "Squat Analysis":
-        st.line_chart(chart_df[["Knee Flexion", "Trunk Lean", "Pelvic Drop"]])
+        display_df = chart_df[["Knee Flexion", "Trunk Lean", "Pelvic Drop"]]
 
     elif movement_test == "Running / Gait Analysis":
-        st.line_chart(chart_df[["Pelvic Drop", "Trunk Lean", "Knee Flexion"]])
+        display_df = chart_df[["Pelvic Drop", "Trunk Lean", "Knee Flexion"]]
 
     elif movement_test == "Jump Landing":
-        st.line_chart(chart_df[["Knee Flexion", "Trunk Lean", "Pelvic Drop"]])
+        display_df = chart_df[["Knee Flexion", "Trunk Lean", "Pelvic Drop"]]
 
-    elif movement_test == "Posture Screen":
-        st.line_chart(chart_df[["Shoulder Tilt", "Pelvic Drop", "Trunk Lean"]])
+    else:
+        display_df = chart_df[["Shoulder Tilt", "Pelvic Drop", "Trunk Lean"]]
+
+    st.line_chart(display_df)
 
     st.markdown("---")
 
@@ -781,7 +987,7 @@ def show_report(report):
             "stiff",
             "low",
             "warning",
-            "poor"
+            "poor",
         ]
 
         if any(word in note.lower() for word in warning_keywords):
@@ -791,27 +997,28 @@ def show_report(report):
 
     st.markdown("---")
 
-    # Export files
     chart_path = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
     pdf_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
 
     save_chart_png(
-        chart_df,
+        display_df,
         f"{report['movement_test']} Kinematic Chart",
-        chart_path
+        chart_path,
     )
 
     create_pdf_report(report, chart_path, pdf_path)
 
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
+
+    safe_name = report["movement_test"].replace(" ", "_").replace("/", "").lower()
 
     with col_a:
         with open(chart_path, "rb") as img_file:
             st.download_button(
                 label="Download Chart PNG",
                 data=img_file,
-                file_name=f"{report['movement_test'].replace(' ', '_').replace('/', '').lower()}_chart.png",
-                mime="image/png"
+                file_name=f"{safe_name}_chart.png",
+                mime="image/png",
             )
 
     with col_b:
@@ -819,9 +1026,14 @@ def show_report(report):
             st.download_button(
                 label="Download PDF Report",
                 data=pdf_file,
-                file_name=f"{report['movement_test'].replace(' ', '_').replace('/', '').lower()}_report.pdf",
-                mime="application/pdf"
+                file_name=f"{safe_name}_report.pdf",
+                mime="application/pdf",
             )
+
+    with col_c:
+        if st.button(f"Save {report['label']} to History"):
+            save_report_history(report)
+            st.success("Report saved to client history.")
 
 
 # -------------------------------------------------
@@ -932,9 +1144,9 @@ analysis_type = st.radio(
     "Choose Analysis Type",
     [
         "Single Video Analysis",
-        "Before / After Comparison"
+        "Before / After Comparison",
     ],
-    horizontal=True
+    horizontal=True,
 )
 
 movement_test = st.selectbox(
@@ -943,8 +1155,8 @@ movement_test = st.selectbox(
         "Squat Analysis",
         "Running / Gait Analysis",
         "Jump Landing",
-        "Posture Screen"
-    ]
+        "Posture Screen",
+    ],
 )
 
 st.caption(MOVEMENT_TESTS[movement_test]["description"])
@@ -956,14 +1168,15 @@ with st.expander("What this test measures"):
 if analysis_type == "Single Video Analysis":
     uploaded_video = st.file_uploader(
         "Upload Movement Video",
-        type=["mp4", "mov", "avi"]
+        type=["mp4", "mov", "avi"],
     )
 
     if uploaded_video is not None:
         report = analyze_video(
             uploaded_video,
             movement_test=movement_test,
-            label="Single Video Report"
+            label="Single Video Report",
+            client_profile=client_profile,
         )
 
         if report:
@@ -976,14 +1189,14 @@ else:
         before_video = st.file_uploader(
             "Upload BEFORE Video",
             type=["mp4", "mov", "avi"],
-            key="before"
+            key="before",
         )
 
     with col2:
         after_video = st.file_uploader(
             "Upload AFTER Video",
             type=["mp4", "mov", "avi"],
-            key="after"
+            key="after",
         )
 
     if before_video is not None and after_video is not None:
@@ -992,7 +1205,8 @@ else:
         before_report = analyze_video(
             before_video,
             movement_test=movement_test,
-            label="Before Report"
+            label="Before Report",
+            client_profile=client_profile,
         )
 
         st.info("Processing AFTER video...")
@@ -1000,10 +1214,13 @@ else:
         after_report = analyze_video(
             after_video,
             movement_test=movement_test,
-            label="After Report"
+            label="After Report",
+            client_profile=client_profile,
         )
 
         if before_report and after_report:
             show_report(before_report)
             show_report(after_report)
             compare_reports(before_report, after_report)
+
+show_history_dashboard()
