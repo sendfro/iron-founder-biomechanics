@@ -1,7 +1,8 @@
 streamlit
 mediapipe==0.10.14
-numpy
+numpy==1.26.4
 opencv-python-headless
 pandas
 matplotlib
 reportlab
+protobuf==4.25.3
