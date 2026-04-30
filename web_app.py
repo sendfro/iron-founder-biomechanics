@@ -182,6 +182,27 @@ def visible_enough(*scores, threshold=0.55):
     return all(score >= threshold for score in scores)
 
 
+def safe_max(values):
+    clean_values = [v for v in values if v is not None and not pd.isna(v)]
+    return max(clean_values) if clean_values else 0
+
+
+def safe_mean(values):
+    clean_values = [v for v in values if v is not None and not pd.isna(v)]
+    return float(np.mean(clean_values)) if clean_values else 0
+
+
+def count_valid_values(values):
+    return len([v for v in values if v is not None and not pd.isna(v)])
+
+
+def pad_list(values, target_length):
+    padded = list(values)
+    while len(padded) < target_length:
+        padded.append(None)
+    return padded
+
+
 def calculate_line_tilt(point_a, point_b):
     radians = np.arctan2(
         point_b[1] - point_a[1],
@@ -234,7 +255,8 @@ def save_chart_png(dataframe, title, filename):
     plt.figure(figsize=(10, 4))
 
     for column in dataframe.columns:
-        plt.plot(dataframe[column], label=column)
+        series = pd.to_numeric(dataframe[column], errors="coerce")
+        plt.plot(series, label=column)
 
     plt.title(title)
     plt.xlabel("Processed Frame")
@@ -431,6 +453,88 @@ def assess_camera_reliability(movement_test, camera_view, tracking_confidence_ra
 
 
 # -------------------------------------------------
+# REPORT TRUST GRADE ENGINE
+# -------------------------------------------------
+def assess_report_trust(report):
+    camera_score = report.get("camera_reliability", {}).get("score", 0)
+    tracking_score = report.get("tracking_confidence_rate", 0)
+    processed_frames = report.get("processed_frames", 0)
+    valid_data_frames = report.get("valid_data_frames", 0)
+
+    score = 100
+    reasons = []
+
+    if camera_score >= 85:
+        reasons.append("Camera setup was strong for the selected test.")
+    elif camera_score >= 65:
+        score -= 12
+        reasons.append("Camera setup was usable but not ideal for every metric.")
+    else:
+        score -= 28
+        reasons.append("Camera setup reduced the reliability of the report.")
+
+    if tracking_score >= 90:
+        reasons.append("Pose tracking confidence was excellent.")
+    elif tracking_score >= 80:
+        score -= 8
+        reasons.append("Pose tracking confidence was good but not perfect.")
+    elif tracking_score >= 70:
+        score -= 16
+        reasons.append("Pose tracking confidence was moderate.")
+    else:
+        score -= 32
+        reasons.append("Pose tracking confidence was low.")
+
+    if processed_frames < 20:
+        score -= 25
+        reasons.append("Very few frames were processed. A longer or clearer video is recommended.")
+    elif processed_frames < 50:
+        score -= 12
+        reasons.append("Limited frame sample. Results are useful but should be interpreted carefully.")
+    else:
+        reasons.append("Frame sample size was adequate for screening.")
+
+    valid_ratio = valid_data_frames / max(processed_frames, 1)
+
+    if valid_ratio >= 0.9:
+        reasons.append("Most processed frames contained valid landmark data.")
+    elif valid_ratio >= 0.75:
+        score -= 8
+        reasons.append("Some frames were excluded because landmark confidence was not strong enough.")
+    elif valid_ratio >= 0.6:
+        score -= 16
+        reasons.append("A meaningful number of frames were excluded due to weak landmark confidence.")
+    else:
+        score -= 30
+        reasons.append("Too many frames had weak landmark confidence, reducing trust in the measurements.")
+
+    score = max(0, min(100, score))
+
+    if score >= 95:
+        grade = "A+"
+    elif score >= 90:
+        grade = "A"
+    elif score >= 85:
+        grade = "B+"
+    elif score >= 80:
+        grade = "B"
+    elif score >= 75:
+        grade = "C+"
+    elif score >= 70:
+        grade = "C"
+    elif score >= 60:
+        grade = "D"
+    else:
+        grade = "Low Trust"
+
+    return {
+        "score": score,
+        "grade": grade,
+        "reasons": reasons,
+    }
+
+
+# -------------------------------------------------
 # PDF REPORT
 # -------------------------------------------------
 def create_pdf_report(report, chart_path, pdf_path):
@@ -451,6 +555,14 @@ def create_pdf_report(report, chart_path, pdf_path):
     y -= 0.25 * inch
 
     c.drawString(0.75 * inch, y, f"Camera View: {report.get('camera_view', 'Not selected')}")
+    y -= 0.25 * inch
+
+    trust = report.get("report_trust", {})
+    c.drawString(
+        0.75 * inch,
+        y,
+        f"Report Trust Grade: {trust.get('grade', 'Unknown')} - {trust.get('score', 0)}/100"
+    )
     y -= 0.25 * inch
 
     c.drawString(0.75 * inch, y, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -520,7 +632,10 @@ def create_pdf_report(report, chart_path, pdf_path):
         ("Movement Fault Rate", f"{report['movement_fault_rate']:.1f}%"),
         ("Tracking Confidence", f"{report['tracking_confidence_rate']:.1f}%"),
         ("Camera Reliability", f"{reliability.get('label', 'Unknown')} - {reliability.get('score', 0)}/100"),
+        ("Report Trust Grade", f"{trust.get('grade', 'Unknown')} - {trust.get('score', 0)}/100"),
         ("Processed Frames", str(report["processed_frames"])),
+        ("Valid Data Frames", str(report["valid_data_frames"])),
+        ("Low Confidence Frames", str(report["low_confidence_frames"])),
     ]
 
     for name, value in rows:
@@ -797,6 +912,14 @@ def generate_notes(report):
     for strength in reliability.get("strengths", []):
         notes.append(strength)
 
+    trust = report.get("report_trust", {})
+    notes.append(
+        f"Report Trust Grade: {trust.get('grade', 'Unknown')} ({trust.get('score', 0)}/100)."
+    )
+
+    for reason in trust.get("reasons", []):
+        notes.append(reason)
+
     if report["tracking_confidence_rate"] < 70:
         notes.append(
             "Tracking confidence was low. Use a clear full-body video with good lighting, stable camera position, and minimal obstruction."
@@ -873,7 +996,22 @@ def analyze_video(uploaded_file, movement_test, camera_view, label="Video", clie
                         f"{label} | {movement_test}: Processing frame {current_frame} of {total_frames}"
                     )
 
-                image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # -------------------------------------------------
+                # CLAHE LIGHTING ENHANCEMENT
+                # -------------------------------------------------
+                # Convert to LAB color space to isolate the lightness (L) channel
+                lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+                l, a, b = cv2.split(lab)
+
+                # Apply CLAHE to balance contrast without blowing out highlights
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                cl = clahe.apply(l)
+
+                # Merge back and convert to RGB for MediaPipe processing
+                limg = cv2.merge((cl, a, b))
+                image = cv2.cvtColor(limg, cv2.COLOR_LAB2RGB)
+                # -------------------------------------------------
+
                 image.flags.writeable = False
                 results = pose.process(image)
                 image.flags.writeable = True
@@ -905,10 +1043,10 @@ def analyze_video(uploaded_file, movement_test, camera_view, label="Video", clie
                         if not enough_visibility:
                             low_confidence_frames += 1
 
-                            pelvic_history.append(0)
-                            knee_flexion_history.append(0)
-                            trunk_lean_history.append(0)
-                            shoulder_tilt_history.append(0)
+                            pelvic_history.append(None)
+                            knee_flexion_history.append(None)
+                            trunk_lean_history.append(None)
+                            shoulder_tilt_history.append(None)
 
                             warning_text = "LOW CONFIDENCE LANDMARKS"
                             warning_color = (255, 165, 0)
@@ -964,10 +1102,10 @@ def analyze_video(uploaded_file, movement_test, camera_view, label="Video", clie
                     except Exception:
                         low_confidence_frames += 1
 
-                        pelvic_history.append(0)
-                        knee_flexion_history.append(0)
-                        trunk_lean_history.append(0)
-                        shoulder_tilt_history.append(0)
+                        pelvic_history.append(None)
+                        knee_flexion_history.append(None)
+                        trunk_lean_history.append(None)
+                        shoulder_tilt_history.append(None)
 
                         warning_text = "FRAME SKIPPED"
                         warning_color = (255, 165, 0)
@@ -993,96 +1131,106 @@ def analyze_video(uploaded_file, movement_test, camera_view, label="Video", clie
 
                 else:
                     low_confidence_frames += 1
-                    pelvic_history.append(0)
-                    knee_flexion_history.append(0)
-                    trunk_lean_history.append(0)
-                    shoulder_tilt_history.append(0)
+
+                    pelvic_history.append(None)
+                    knee_flexion_history.append(None)
+                    trunk_lean_history.append(None)
+                    shoulder_tilt_history.append(None)
+
+                    cv2.putText(
+                        image,
+                        warning_text,
+                        (30, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.8,
+                        warning_color,
+                        2,
+                        cv2.LINE_AA,
+                    )
 
                 preview.image(image, channels="RGB", use_container_width=True)
 
         cap.release()
 
+        preview.empty()
+        progress_text.empty()
+        progress_bar.empty()
+
+        if processed_frames == 0:
+            return None
+
+        valid_data_frames = count_valid_values(knee_flexion_history)
+        valid_frames_for_rates = max(valid_data_frames, 1)
+
+        tracking_confidence_rate = (
+            valid_data_frames / processed_frames * 100
+        )
+
+        report = {
+            "label": label,
+            "movement_test": movement_test,
+            "camera_view": camera_view,
+            "client_profile": client_profile or {},
+
+            "fps": fps,
+            "total_frames": total_frames,
+            "processed_frames": processed_frames,
+            "valid_data_frames": valid_data_frames,
+            "low_confidence_frames": low_confidence_frames,
+
+            "max_pelvic_drop": safe_max(pelvic_history),
+            "avg_pelvic_drop": safe_mean(pelvic_history),
+
+            "max_knee_flexion": safe_max(knee_flexion_history),
+            "avg_knee_flexion": safe_mean(knee_flexion_history),
+
+            "max_trunk_lean": safe_max(trunk_lean_history),
+            "avg_trunk_lean": safe_mean(trunk_lean_history),
+
+            "max_shoulder_tilt": safe_max(shoulder_tilt_history),
+            "avg_shoulder_tilt": safe_mean(shoulder_tilt_history),
+
+            "valgus_rate": valgus_errors / valid_frames_for_rates * 100,
+            "movement_fault_rate": movement_faults / valid_frames_for_rates * 100,
+            "tracking_confidence_rate": tracking_confidence_rate,
+
+            "pelvic_history": pelvic_history,
+            "knee_flexion_history": knee_flexion_history,
+            "trunk_lean_history": trunk_lean_history,
+            "shoulder_tilt_history": shoulder_tilt_history,
+        }
+
+        report["camera_reliability"] = assess_camera_reliability(
+            movement_test=movement_test,
+            camera_view=camera_view,
+            tracking_confidence_rate=report["tracking_confidence_rate"],
+        )
+
+        report["report_trust"] = assess_report_trust(report)
+
+        report["notes"] = generate_notes(report)
+
+        return report
+
     finally:
-        # Robust temp file cleanup guaranteed to execute even if the CV2 loop crashes
+        # Guarantee cleanup even if MediaPipe/Streamlit crashes mid-analysis
         try:
             if os.path.exists(video_path):
                 os.remove(video_path)
-        except Exception as e:
-            st.warning(f"Could not remove temporary video file: {e}")
-
-    preview.empty()
-    progress_text.empty()
-    progress_bar.empty()
-
-    if processed_frames == 0:
-        return None
-
-    valid_frames = max(processed_frames - low_confidence_frames, 1)
-
-    tracking_confidence_rate = (
-        (processed_frames - low_confidence_frames) / processed_frames * 100
-    )
-
-    report = {
-        "label": label,
-        "movement_test": movement_test,
-        "camera_view": camera_view,
-        "client_profile": client_profile or {},
-
-        "fps": fps,
-        "total_frames": total_frames,
-        "processed_frames": processed_frames,
-        "low_confidence_frames": low_confidence_frames,
-
-        "max_pelvic_drop": max(pelvic_history) if pelvic_history else 0,
-        "avg_pelvic_drop": float(np.mean(pelvic_history)) if pelvic_history else 0,
-
-        "max_knee_flexion": max(knee_flexion_history) if knee_flexion_history else 0,
-        "avg_knee_flexion": float(np.mean(knee_flexion_history)) if knee_flexion_history else 0,
-
-        "max_trunk_lean": max(trunk_lean_history) if trunk_lean_history else 0,
-        "avg_trunk_lean": float(np.mean(trunk_lean_history)) if trunk_lean_history else 0,
-
-        "max_shoulder_tilt": max(shoulder_tilt_history) if shoulder_tilt_history else 0,
-        "avg_shoulder_tilt": float(np.mean(shoulder_tilt_history)) if shoulder_tilt_history else 0,
-
-        "valgus_rate": valgus_errors / valid_frames * 100,
-        "movement_fault_rate": movement_faults / valid_frames * 100,
-        "tracking_confidence_rate": tracking_confidence_rate,
-
-        "pelvic_history": pelvic_history,
-        "knee_flexion_history": knee_flexion_history,
-        "trunk_lean_history": trunk_lean_history,
-        "shoulder_tilt_history": shoulder_tilt_history,
-    }
-
-    report["camera_reliability"] = assess_camera_reliability(
-        movement_test=movement_test,
-        camera_view=camera_view,
-        tracking_confidence_rate=report["tracking_confidence_rate"],
-    )
-
-    report["notes"] = generate_notes(report)
-
-    return report
+        except Exception:
+            pass
 
 
 # -------------------------------------------------
 # REPORT HISTORY
 # -------------------------------------------------
 def save_report_history(report):
-    # ------------------------------------------------------------------------
-    # DEPLOYMENT NOTE:
-    # When deploying to a stateless environment, swap this local CSV writing 
-    # logic with a cloud database insert (e.g. Supabase) so your data 
-    # persists across redeploys.
-    # ------------------------------------------------------------------------
-    
     os.makedirs("reports", exist_ok=True)
 
     history_path = "reports/report_history.csv"
 
     client = report.get("client_profile", {})
+    trust = report.get("report_trust", {})
 
     row = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -1092,8 +1240,13 @@ def save_report_history(report):
         "coach_name": client.get("coach_name", ""),
         "movement_test": report.get("movement_test", ""),
         "camera_view": report.get("camera_view", ""),
+
+        "report_trust_grade": trust.get("grade", ""),
+        "report_trust_score": trust.get("score", 0),
+
         "camera_reliability_label": report.get("camera_reliability", {}).get("label", ""),
         "camera_reliability_score": report.get("camera_reliability", {}).get("score", 0),
+
         "label": report.get("label", ""),
 
         "max_pelvic_drop": report.get("max_pelvic_drop", 0),
@@ -1107,6 +1260,9 @@ def save_report_history(report):
         "valgus_rate": report.get("valgus_rate", 0),
         "movement_fault_rate": report.get("movement_fault_rate", 0),
         "tracking_confidence_rate": report.get("tracking_confidence_rate", 0),
+        "processed_frames": report.get("processed_frames", 0),
+        "valid_data_frames": report.get("valid_data_frames", 0),
+        "low_confidence_frames": report.get("low_confidence_frames", 0),
 
         "client_notes": client.get("client_notes", ""),
         "ai_notes": json.dumps(report.get("notes", [])),
@@ -1169,6 +1325,24 @@ def show_report(report):
     )
 
     st.caption(MOVEMENT_TESTS[report["movement_test"]]["description"])
+
+    trust = report.get("report_trust", {})
+    trust_grade = trust.get("grade", "Unknown")
+    trust_score = trust.get("score", 0)
+
+    if trust_score >= 85:
+        st.success(f"Report Trust Grade: {trust_grade} — {trust_score}/100")
+    elif trust_score >= 70:
+        st.warning(f"Report Trust Grade: {trust_grade} — {trust_score}/100")
+    else:
+        st.error(f"Report Trust Grade: {trust_grade} — {trust_score}/100")
+
+    with st.expander("Report Trust Details", expanded=False):
+        st.write(f"**Trust Grade:** {trust_grade}")
+        st.write(f"**Trust Score:** {trust_score}/100")
+
+        for reason in trust.get("reasons", []):
+            st.write(f"• {reason}")
 
     reliability = report.get("camera_reliability", {})
     reliability_label = reliability.get("label", "Unknown")
@@ -1244,6 +1418,12 @@ def show_report(report):
         col3.metric("Max Trunk Lean", f"{report['max_trunk_lean']:.1f}°", "Target < 10°")
         col4.metric("Tracking Confidence", f"{report['tracking_confidence_rate']:.1f}%")
 
+    st.caption(
+        f"Processed Frames: {report['processed_frames']} | "
+        f"Valid Data Frames: {report['valid_data_frames']} | "
+        f"Low Confidence Frames: {report['low_confidence_frames']}"
+    )
+
     st.markdown("---")
 
     st.subheader("📈 Kinematic Data")
@@ -1254,6 +1434,8 @@ def show_report(report):
         "Trunk Lean": report["trunk_lean_history"],
         "Shoulder Tilt": report["shoulder_tilt_history"],
     })
+
+    chart_df = chart_df.apply(pd.to_numeric, errors="coerce")
 
     if movement_test == "Squat Analysis":
         display_df = chart_df[["Knee Flexion", "Trunk Lean", "Pelvic Drop"]]
@@ -1288,6 +1470,9 @@ def show_report(report):
             "diagonal",
             "unknown",
             "moderate",
+            "excluded",
+            "reduced",
+            "few",
         ]
 
         if any(word in note.lower() for word in warning_keywords):
@@ -1349,6 +1534,7 @@ def compare_reports(before, after):
 
     comparison = pd.DataFrame({
         "Metric": [
+            "Report Trust Grade",
             "Camera Reliability",
             "Max Pelvic Drop",
             "Average Pelvic Drop",
@@ -1361,8 +1547,10 @@ def compare_reports(before, after):
             "Knee Valgus Risk",
             "Movement Fault Rate",
             "Tracking Confidence",
+            "Valid Data Frames",
         ],
         "Before": [
+            f"{before.get('report_trust', {}).get('grade', 'Unknown')} - {before.get('report_trust', {}).get('score', 0)}/100",
             f"{before.get('camera_reliability', {}).get('label', 'Unknown')} - {before.get('camera_reliability', {}).get('score', 0)}/100",
             f"{before['max_pelvic_drop']:.1f}°",
             f"{before['avg_pelvic_drop']:.1f}°",
@@ -1375,8 +1563,10 @@ def compare_reports(before, after):
             f"{before['valgus_rate']:.1f}%",
             f"{before['movement_fault_rate']:.1f}%",
             f"{before['tracking_confidence_rate']:.1f}%",
+            str(before.get("valid_data_frames", 0)),
         ],
         "After": [
+            f"{after.get('report_trust', {}).get('grade', 'Unknown')} - {after.get('report_trust', {}).get('score', 0)}/100",
             f"{after.get('camera_reliability', {}).get('label', 'Unknown')} - {after.get('camera_reliability', {}).get('score', 0)}/100",
             f"{after['max_pelvic_drop']:.1f}°",
             f"{after['avg_pelvic_drop']:.1f}°",
@@ -1389,6 +1579,7 @@ def compare_reports(before, after):
             f"{after['valgus_rate']:.1f}%",
             f"{after['movement_fault_rate']:.1f}%",
             f"{after['tracking_confidence_rate']:.1f}%",
+            str(after.get("valid_data_frames", 0)),
         ],
     })
 
@@ -1396,23 +1587,42 @@ def compare_reports(before, after):
 
     st.subheader("Comparison Charts")
 
+    max_len = max(
+        len(before["pelvic_history"]),
+        len(after["pelvic_history"]),
+        len(before["knee_flexion_history"]),
+        len(after["knee_flexion_history"]),
+        len(before["trunk_lean_history"]),
+        len(after["trunk_lean_history"]),
+    )
+
     compare_df = pd.DataFrame({
-        "Before Pelvic Drop": before["pelvic_history"],
-        "After Pelvic Drop": after["pelvic_history"],
-        "Before Knee Flexion": before["knee_flexion_history"],
-        "After Knee Flexion": after["knee_flexion_history"],
-        "Before Trunk Lean": before["trunk_lean_history"],
-        "After Trunk Lean": after["trunk_lean_history"],
+        "Before Pelvic Drop": pad_list(before["pelvic_history"], max_len),
+        "After Pelvic Drop": pad_list(after["pelvic_history"], max_len),
+        "Before Knee Flexion": pad_list(before["knee_flexion_history"], max_len),
+        "After Knee Flexion": pad_list(after["knee_flexion_history"], max_len),
+        "Before Trunk Lean": pad_list(before["trunk_lean_history"], max_len),
+        "After Trunk Lean": pad_list(after["trunk_lean_history"], max_len),
     })
+
+    compare_df = compare_df.apply(pd.to_numeric, errors="coerce")
 
     st.line_chart(compare_df)
 
     st.subheader("AI Comparison Summary")
 
+    trust_change = after.get("report_trust", {}).get("score", 0) - before.get("report_trust", {}).get("score", 0)
     fault_change = after["movement_fault_rate"] - before["movement_fault_rate"]
     valgus_change = after["valgus_rate"] - before["valgus_rate"]
     trunk_change = after["max_trunk_lean"] - before["max_trunk_lean"]
     pelvic_change = after["max_pelvic_drop"] - before["max_pelvic_drop"]
+
+    if trust_change > 0:
+        st.success(f"Report trust improved by {trust_change:.1f} points.")
+    elif trust_change < 0:
+        st.warning(f"Report trust decreased by {abs(trust_change):.1f} points.")
+    else:
+        st.info("Report trust stayed the same.")
 
     if fault_change < 0:
         st.success(f"Overall movement fault rate improved by {abs(fault_change):.1f}%.")
