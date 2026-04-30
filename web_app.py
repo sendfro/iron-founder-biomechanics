@@ -15,7 +15,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 
-APP_VERSION = "Metric Confidence v4.1 (Engineered)"
+APP_VERSION = "Metric Confidence v4.1 (Engineered + Restored UI)"
 
 # ==================================================
 # APP SETUP
@@ -352,7 +352,6 @@ def assess_movement_quality(report):
     if movement_test == "Squat Analysis":
         depth_target = settings["knee_flexion_target"]
         trunk_limit = settings["trunk_lean_limit"]
-        pelvic_limit = settings["pelvic_drop_limit"]
 
         if report["max_knee_flexion"] < depth_target:
             base = min(25, (depth_target - report["max_knee_flexion"]) * 1.5)
@@ -366,66 +365,66 @@ def assess_movement_quality(report):
         if report["valgus_rate"] > 20:
             base = min(30, report["valgus_rate"] * 0.6)
             score -= apply_penalty(base, "Knee Valgus")
-            flags.append("Possible Knee Valgus")
-            cues.append("Drive knees outward and keep tracking over second toes.")
+            flags.append(f"Joint Risk: {report['valgus_rate']:.1f}% Valgus Detected")
+            cues.append("Root your feet firmly and actively press knees outward against an imaginary band.")
             if primary_limitation == "None detected": primary_limitation = "Knee Tracking"
             retest_view = "Front View"
         elif report["valgus_rate"] > 5:
             base = min(15, report["valgus_rate"] * 0.4)
             score -= apply_penalty(base, "Knee Valgus")
-            flags.append("Mild Knee Valgus Tendency")
+            flags.append(f"Mild Knee Valgus: {report['valgus_rate']:.1f}%")
             cues.append("Control knee position during the lowering and rising phase.")
 
         if report["max_trunk_lean"] > trunk_limit:
             base = min(25, (report["max_trunk_lean"] - trunk_limit) * 2)
             score -= apply_penalty(base, "Trunk Lean")
             flags.append("Excessive Trunk Lean")
-            cues.append("Brace the trunk and keep chest position controlled.")
+            cues.append("Keep your chest proud and core fully braced throughout the descent.")
             if primary_limitation == "None detected": primary_limitation = "Trunk Control"
             retest_view = "Side View"
 
     elif movement_test == "Running / Gait Analysis":
         if report["max_pelvic_drop"] > settings["pelvic_drop_limit"]:
             score -= apply_penalty(min(35, (report["max_pelvic_drop"] - settings["pelvic_drop_limit"]) * 3), "Pelvic Drop")
-            flags.append("Pelvic Drop")
-            cues.append("Improve hip stability and keep pelvis level during stance.")
+            flags.append("Pelvic Instability (Drop)")
+            cues.append("Engage glutes to keep hips level on impact; consider lateral band walks.")
             primary_limitation = "Pelvic Control"
             retest_view = "Rear View"
 
         if report["max_trunk_lean"] > settings["trunk_lean_limit"]:
             score -= apply_penalty(min(25, (report["max_trunk_lean"] - settings["trunk_lean_limit"]) * 2), "Trunk Lean")
-            flags.append("Excessive Trunk Lean")
-            cues.append("Run tall with a controlled forward lean from the ankles.")
+            flags.append("Inefficient Running Posture")
+            cues.append("Run tall with a slight forward lean from the ankles, not the waist.")
             if primary_limitation == "None detected": primary_limitation = "Trunk Lean"
             retest_view = "Side View"
 
     elif movement_test == "Jump Landing":
         if report["max_knee_flexion"] < settings["landing_knee_flexion_min"]:
             score -= apply_penalty(min(35, (settings["landing_knee_flexion_min"] - report["max_knee_flexion"]) * 2), "Knee Flexion")
-            flags.append("Stiff Landing")
-            cues.append("Land softer by bending hips and knees to absorb force.")
+            flags.append("Stiff Landing Mechanics")
+            cues.append("Land softly like a ninja; sink into the hips and knees to absorb force.")
             primary_limitation = "Landing Absorption"
             retest_view = "Side View"
 
         if report["valgus_rate"] > 20:
             score -= apply_penalty(min(30, report["valgus_rate"] * 0.6), "Knee Valgus")
-            flags.append("Landing Knee Valgus")
-            cues.append("Land with knees tracking over toes.")
-            if primary_limitation == "None detected": primary_limitation = "Landing Knee Valgus"
+            flags.append(f"High ACL Risk: {report['valgus_rate']:.1f}% Valgus on Landing")
+            cues.append("Stick the landing with knees tracking directly over the second toe.")
+            if primary_limitation == "None detected": primary_limitation = "Dynamic Knee Valgus"
             retest_view = "Front View"
 
     elif movement_test == "Posture Screen":
         if report["max_shoulder_tilt"] > settings["shoulder_tilt_limit"]:
             score -= apply_penalty(min(25, (report["max_shoulder_tilt"] - settings["shoulder_tilt_limit"]) * 3), "Shoulder Tilt")
-            flags.append("Shoulder Tilt")
-            cues.append("Check shoulder height and ribcage position.")
+            flags.append("Shoulder Asymmetry")
+            cues.append("Check for carrying heavy loads on one side; stretch upper traps.")
             primary_limitation = "Shoulder Alignment"
             retest_view = "Front View"
 
         if report["max_pelvic_drop"] > settings["pelvic_drop_limit"]:
             score -= apply_penalty(min(25, (report["max_pelvic_drop"] - settings["pelvic_drop_limit"]) * 3), "Pelvic Drop")
-            flags.append("Pelvic Tilt")
-            cues.append("Balance weight evenly and retest.")
+            flags.append("Pelvic Tilt / Asymmetry")
+            cues.append("Check for leg length discrepancy or isolated glute medius weakness.")
             if primary_limitation == "None detected": primary_limitation = "Pelvic Alignment"
 
     for metric, data in report.get("metric_confidence", {}).items():
@@ -434,7 +433,7 @@ def assess_movement_quality(report):
 
     score = int(max(0, min(100, round(score))))
     if not flags: flags.append("No major movement flags detected.")
-    if not cues: cues.append("Maintain current mechanics and retest periodically.")
+    if not cues: cues.append("Maintain current mechanics and utilize progressive overload.")
 
     return {
         "score": score,
@@ -590,178 +589,3 @@ def analyze_video(uploaded_file, movement_test, camera_view, label="Video", clie
 
                 preview.image(image, channels="RGB", use_container_width=True)
     finally:
-        cap.release()
-        try: os.remove(video_path)
-        except Exception: pass
-
-    preview.empty(); progress_text.empty(); progress_bar.empty()
-
-    if processed_frames == 0: return None
-
-    valid_data_frames = count_valid_values(knee_flexion_history)
-    valid_frames_for_rates = max(valid_data_frames, 1)
-
-    report = {
-        "label": label, "movement_test": movement_test, "camera_view": camera_view, "client_profile": client_profile or {},
-        "fps": fps, "total_frames": total_frames, "processed_frames": processed_frames, "valid_data_frames": valid_data_frames, "low_confidence_frames": low_confidence_frames,
-        "max_pelvic_drop": safe_max(pelvic_history), "avg_pelvic_drop": safe_mean(pelvic_history),
-        "max_knee_flexion": safe_max(knee_flexion_history), "avg_knee_flexion": safe_mean(knee_flexion_history),
-        "max_trunk_lean": safe_max(trunk_lean_history), "avg_trunk_lean": safe_mean(trunk_lean_history),
-        "max_shoulder_tilt": safe_max(shoulder_tilt_history), "avg_shoulder_tilt": safe_mean(shoulder_tilt_history),
-        "valgus_rate": valgus_errors / valid_frames_for_rates * 100, "movement_fault_rate": movement_faults / valid_frames_for_rates * 100,
-        "tracking_confidence_rate": valid_data_frames / processed_frames * 100,
-        "pelvic_history": pelvic_history, "knee_flexion_history": knee_flexion_history, "trunk_lean_history": trunk_lean_history, "shoulder_tilt_history": shoulder_tilt_history,
-    }
-
-    report["metric_confidence"] = get_metric_confidence(movement_test, camera_view)
-    report["camera_reliability"] = assess_camera_reliability(movement_test, camera_view, report["tracking_confidence_rate"])
-    report["data_quality"] = assess_data_quality(report)
-    report["movement_quality"] = assess_movement_quality(report)
-    report["notes"] = generate_notes(report)
-
-    return report
-
-
-# ==================================================
-# SQLite HISTORY
-# ==================================================
-def init_db():
-    os.makedirs("reports", exist_ok=True)
-    conn = sqlite3.connect("reports/report_history.db")
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT, client_name TEXT, client_age TEXT,
-            movement_test TEXT, camera_view TEXT, movement_score INTEGER
-        )
-    ''')
-    conn.commit()
-    return conn
-
-def save_report_history(report):
-    conn = init_db()
-    cursor = conn.cursor()
-    client = report.get("client_profile", {})
-    mq = report.get("movement_quality", {})
-    
-    cursor.execute('''
-        INSERT INTO history (date, client_name, client_age, movement_test, camera_view, movement_score)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (
-        datetime.now().strftime("%Y-%m-%d %H:%M"),
-        client.get("client_name", ""),
-        client.get("client_age", ""),
-        report.get("movement_test", ""),
-        report.get("camera_view", ""),
-        mq.get("score", 0)
-    ))
-    conn.commit()
-    conn.close()
-
-def show_history_dashboard():
-    st.markdown("---")
-    st.header("Client Report History")
-    conn = init_db()
-    df = pd.read_sql("SELECT * FROM history ORDER BY id DESC", conn)
-    conn.close()
-
-    if not df.empty:
-        search = st.text_input("Search Client Name")
-        if search: df = df[df["client_name"].str.contains(search, case=False, na=False)]
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.info("No saved reports yet.")
-
-# ==================================================
-# DISPLAY
-# ==================================================
-def show_report(report):
-    st.header(f"📊 Final Biomechanical Report: {report['label']}")
-    st.info(f"Test: **{report['movement_test']}** | Camera: **{report.get('camera_view')}**")
-
-    mq = report.get("movement_quality", {})
-    col_mq1, col_mq2, col_mq3 = st.columns(3)
-    col_mq1.metric("Movement Quality", f"{mq.get('grade')} ({mq.get('label')})")
-    col_mq2.metric("Score", f"{mq.get('score')}/100")
-    col_mq3.metric("Limitation", mq.get("primary_limitation"))
-
-    st.markdown("---")
-    st.subheader("📈 Kinematic Data")
-    chart_df = pd.DataFrame({
-        "Pelvic Drop": report["pelvic_history"],
-        "Knee Flexion": report["knee_flexion_history"],
-        "Trunk Lean": report["trunk_lean_history"]
-    }).apply(pd.to_numeric, errors="coerce")
-    st.line_chart(chart_df)
-
-    chart_path = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
-    pdf_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
-    save_chart_png(chart_df, f"{report['movement_test']} Kinematic Chart", chart_path)
-    create_pdf_report(report, chart_path, pdf_path)
-
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        with open(pdf_path, "rb") as pdf_file:
-            st.download_button("Download PDF Report", pdf_file, "report.pdf", "application/pdf")
-    with col_b:
-        if st.button(f"Save {report['label']} to History", key=f"save_{report['label']}"):
-            save_report_history(report)
-            st.success("Saved!")
-
-def compare_reports(before, after):
-    st.header("🔁 Side-by-Side Comparison")
-    st.info(f"Comparison Mode: {before['movement_test']}")
-
-    st.subheader("Time-Normalized Comparison Charts")
-    compare_df = pd.DataFrame({
-        "Before Knee Flexion": normalize_time_series(before["knee_flexion_history"]),
-        "After Knee Flexion": normalize_time_series(after["knee_flexion_history"]),
-        "Before Trunk Lean": normalize_time_series(before["trunk_lean_history"]),
-        "After Trunk Lean": normalize_time_series(after["trunk_lean_history"]),
-    })
-    st.line_chart(compare_df)
-
-# ==================================================
-# MAIN UI
-# ==================================================
-analysis_type = st.radio("Choose Analysis Type", ["Single Video Analysis", "Before / After Comparison"], horizontal=True)
-movement_test = st.selectbox("Choose Movement Test", list(MOVEMENT_TESTS.keys()))
-camera_view = st.selectbox("Choose Camera View", list(CAMERA_VIEWS.keys()))
-
-if analysis_type == "Single Video Analysis":
-    uploaded_video = st.file_uploader("Upload Movement Video", type=["mp4", "mov", "avi"])
-
-    if uploaded_video is not None:
-        # Check Session State to prevent re-running
-        if st.session_state.single_video_name != uploaded_video.name:
-            st.session_state.single_report = analyze_video(
-                uploaded_video, movement_test, camera_view, "Single Video Report", client_profile
-            )
-            st.session_state.single_video_name = uploaded_video.name
-
-        if st.session_state.single_report:
-            show_report(st.session_state.single_report)
-
-else:
-    col1, col2 = st.columns(2)
-    with col1: before_video = st.file_uploader("Upload BEFORE Video", type=["mp4", "mov", "avi"], key="before")
-    with col2: after_video = st.file_uploader("Upload AFTER Video", type=["mp4", "mov", "avi"], key="after")
-
-    if before_video and after_video:
-        if st.session_state.before_video_name != before_video.name:
-            st.info("Processing BEFORE video...")
-            st.session_state.before_report = analyze_video(before_video, movement_test, camera_view, "Before Report", client_profile)
-            st.session_state.before_video_name = before_video.name
-            
-        if st.session_state.after_video_name != after_video.name:
-            st.info("Processing AFTER video...")
-            st.session_state.after_report = analyze_video(after_video, movement_test, camera_view, "After Report", client_profile)
-            st.session_state.after_video_name = after_video.name
-
-        if st.session_state.before_report and st.session_state.after_report:
-            show_report(st.session_state.before_report)
-            show_report(st.session_state.after_report)
-            compare_reports(st.session_state.before_report, st.session_state.after_report)
-
-show_history_dashboard()
