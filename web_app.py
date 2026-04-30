@@ -88,6 +88,68 @@ MOVEMENT_TESTS = {
 
 
 # -------------------------------------------------
+# CAMERA VIEW SETTINGS
+# -------------------------------------------------
+CAMERA_VIEWS = {
+    "Front View": {
+        "description": "Best for knee valgus, shoulder tilt, pelvic tilt, and left/right symmetry.",
+        "best_for": [
+            "Knee valgus",
+            "Shoulder tilt",
+            "Pelvic tilt",
+            "Left/right asymmetry",
+        ],
+        "weak_for": [
+            "True squat depth",
+            "Forward trunk lean",
+            "Precise knee flexion",
+        ],
+    },
+    "Side View": {
+        "description": "Best for squat depth, knee flexion, hip hinge, trunk lean, and landing mechanics.",
+        "best_for": [
+            "Knee flexion",
+            "Squat depth",
+            "Trunk lean",
+            "Jump landing absorption",
+        ],
+        "weak_for": [
+            "Knee valgus",
+            "Left/right asymmetry",
+            "Pelvic drop",
+        ],
+    },
+    "Rear View": {
+        "description": "Useful for gait, pelvic drop, heel path, and left/right control from behind.",
+        "best_for": [
+            "Pelvic drop",
+            "Gait symmetry",
+            "Rear-chain control",
+            "Foot path observation",
+        ],
+        "weak_for": [
+            "Precise knee flexion",
+            "Squat depth",
+            "Forward trunk lean",
+        ],
+    },
+    "Diagonal / Unknown": {
+        "description": "Least reliable. Diagonal angles distort joint measurements and symmetry readings.",
+        "best_for": [
+            "General visual screening only",
+        ],
+        "weak_for": [
+            "Knee flexion",
+            "Knee valgus",
+            "Pelvic drop",
+            "Trunk lean",
+            "Shoulder tilt",
+        ],
+    },
+}
+
+
+# -------------------------------------------------
 # HELPER FUNCTIONS
 # -------------------------------------------------
 def calculate_angle(a, b, c):
@@ -209,6 +271,168 @@ def draw_wrapped_text(c, text, x, y, max_chars=90, line_height=0.18 * inch):
     return y
 
 
+# -------------------------------------------------
+# CAMERA RELIABILITY ENGINE
+# -------------------------------------------------
+def assess_camera_reliability(movement_test, camera_view, tracking_confidence_rate):
+    score = 100
+    warnings = []
+    strengths = []
+
+    if tracking_confidence_rate < 70:
+        score -= 35
+        warnings.append(
+            "Tracking confidence was low. The body may not have been fully visible, lighting may have been poor, or landmarks were unstable."
+        )
+    elif tracking_confidence_rate < 85:
+        score -= 15
+        warnings.append(
+            "Tracking confidence was moderate. Results are usable but should be interpreted carefully."
+        )
+    else:
+        strengths.append(
+            "Tracking confidence was strong, which improves report reliability."
+        )
+
+    if movement_test == "Squat Analysis":
+        if camera_view == "Side View":
+            strengths.append(
+                "Side view is strong for squat depth, knee flexion, and trunk lean."
+            )
+            warnings.append(
+                "Side view is weak for knee valgus. Use front view if valgus is the main concern."
+            )
+            score -= 5
+
+        elif camera_view == "Front View":
+            strengths.append(
+                "Front view is strong for detecting knee valgus and left/right symmetry."
+            )
+            warnings.append(
+                "Front view is weak for true squat depth and forward trunk lean. Use side view for better depth measurement."
+            )
+            score -= 10
+
+        elif camera_view == "Rear View":
+            warnings.append(
+                "Rear view is not ideal for squat analysis. Use front view for valgus or side view for depth."
+            )
+            score -= 25
+
+        else:
+            warnings.append(
+                "Diagonal or unknown camera angle makes squat metrics less reliable."
+            )
+            score -= 35
+
+    elif movement_test == "Running / Gait Analysis":
+        if camera_view == "Rear View":
+            strengths.append(
+                "Rear view is useful for pelvic drop, gait symmetry, and left/right control."
+            )
+
+        elif camera_view == "Front View":
+            strengths.append(
+                "Front view can help screen pelvic control and symmetry."
+            )
+            warnings.append(
+                "Front view is less ideal than rear view for gait mechanics."
+            )
+            score -= 10
+
+        elif camera_view == "Side View":
+            strengths.append(
+                "Side view is useful for stride posture and trunk lean."
+            )
+            warnings.append(
+                "Side view is weaker for pelvic drop and left/right gait symmetry."
+            )
+            score -= 15
+
+        else:
+            warnings.append(
+                "Diagonal or unknown camera angle makes gait metrics less reliable."
+            )
+            score -= 35
+
+    elif movement_test == "Jump Landing":
+        if camera_view == "Front View":
+            strengths.append(
+                "Front view is strong for landing knee valgus and left/right collapse."
+            )
+            warnings.append(
+                "Front view is weaker for landing depth and force absorption. Use side view for knee-flexion absorption."
+            )
+            score -= 5
+
+        elif camera_view == "Side View":
+            strengths.append(
+                "Side view is strong for landing knee flexion, trunk lean, and force absorption."
+            )
+            warnings.append(
+                "Side view is weak for knee valgus. Use front view if valgus is the main concern."
+            )
+            score -= 5
+
+        elif camera_view == "Rear View":
+            warnings.append(
+                "Rear view is less reliable for jump landing analysis. Use front or side view."
+            )
+            score -= 25
+
+        else:
+            warnings.append(
+                "Diagonal or unknown camera angle makes landing metrics less reliable."
+            )
+            score -= 35
+
+    elif movement_test == "Posture Screen":
+        if camera_view == "Front View":
+            strengths.append(
+                "Front view is strong for posture screening, shoulder tilt, pelvic tilt, and left/right alignment."
+            )
+
+        elif camera_view == "Side View":
+            strengths.append(
+                "Side view is useful for forward head position and trunk lean."
+            )
+            warnings.append(
+                "Side view is weaker for shoulder tilt and left/right pelvic alignment."
+            )
+            score -= 15
+
+        elif camera_view == "Rear View":
+            strengths.append(
+                "Rear view can help assess shoulder and pelvic asymmetry."
+            )
+            score -= 5
+
+        else:
+            warnings.append(
+                "Diagonal or unknown camera angle makes posture screening less reliable."
+            )
+            score -= 35
+
+    score = max(0, min(100, score))
+
+    if score >= 85:
+        label = "High"
+    elif score >= 65:
+        label = "Medium"
+    else:
+        label = "Low"
+
+    return {
+        "score": score,
+        "label": label,
+        "warnings": warnings,
+        "strengths": strengths,
+    }
+
+
+# -------------------------------------------------
+# PDF REPORT
+# -------------------------------------------------
 def create_pdf_report(report, chart_path, pdf_path):
     c = canvas.Canvas(pdf_path, pagesize=letter)
     width, height = letter
@@ -224,6 +448,9 @@ def create_pdf_report(report, chart_path, pdf_path):
     y -= 0.25 * inch
 
     c.drawString(0.75 * inch, y, f"Movement Test: {report['movement_test']}")
+    y -= 0.25 * inch
+
+    c.drawString(0.75 * inch, y, f"Camera View: {report.get('camera_view', 'Not selected')}")
     y -= 0.25 * inch
 
     c.drawString(0.75 * inch, y, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -278,6 +505,8 @@ def create_pdf_report(report, chart_path, pdf_path):
 
     c.setFont("Helvetica", 10)
 
+    reliability = report.get("camera_reliability", {})
+
     rows = [
         ("Max Pelvic Drop", f"{report['max_pelvic_drop']:.1f} degrees"),
         ("Average Pelvic Drop", f"{report['avg_pelvic_drop']:.1f} degrees"),
@@ -290,6 +519,7 @@ def create_pdf_report(report, chart_path, pdf_path):
         ("Knee Valgus Risk", f"{report['valgus_rate']:.1f}%"),
         ("Movement Fault Rate", f"{report['movement_fault_rate']:.1f}%"),
         ("Tracking Confidence", f"{report['tracking_confidence_rate']:.1f}%"),
+        ("Camera Reliability", f"{reliability.get('label', 'Unknown')} - {reliability.get('score', 0)}/100"),
         ("Processed Frames", str(report["processed_frames"])),
     ]
 
@@ -553,6 +783,20 @@ def generate_notes(report):
                 "Trunk alignment stayed within the selected posture threshold."
             )
 
+    reliability = report.get("camera_reliability", {})
+    reliability_label = reliability.get("label", "Unknown")
+    reliability_score = reliability.get("score", 0)
+
+    notes.append(
+        f"Camera reliability rating: {reliability_label} ({reliability_score}/100)."
+    )
+
+    for warning in reliability.get("warnings", []):
+        notes.append(warning)
+
+    for strength in reliability.get("strengths", []):
+        notes.append(strength)
+
     if report["tracking_confidence_rate"] < 70:
         notes.append(
             "Tracking confidence was low. Use a clear full-body video with good lighting, stable camera position, and minimal obstruction."
@@ -564,104 +808,160 @@ def generate_notes(report):
 # -------------------------------------------------
 # CORE VIDEO ANALYSIS
 # -------------------------------------------------
-def analyze_video(uploaded_file, movement_test, label="Video", client_profile=None):
+def analyze_video(uploaded_file, movement_test, camera_view, label="Video", client_profile=None):
     suffix = os.path.splitext(uploaded_file.name)[-1]
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tfile:
         tfile.write(uploaded_file.read())
         video_path = tfile.name
 
-    cap = cv2.VideoCapture(video_path)
+    try:
+        cap = cv2.VideoCapture(video_path)
 
-    if not cap.isOpened():
-        st.error(f"Could not open {label}. Try another MP4, MOV, or AVI file.")
-        try:
-            os.remove(video_path)
-        except Exception:
-            pass
-        return None
+        if not cap.isOpened():
+            st.error(f"Could not open {label}. Try another MP4, MOV, or AVI file.")
+            return None
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
 
-    mp_pose = mp.solutions.pose
-    mp_drawing = mp.solutions.drawing_utils
+        mp_pose = mp.solutions.pose
+        mp_drawing = mp.solutions.drawing_utils
 
-    current_frame = 0
-    processed_frames = 0
-    low_confidence_frames = 0
-    movement_faults = 0
-    valgus_errors = 0
+        current_frame = 0
+        processed_frames = 0
+        low_confidence_frames = 0
+        movement_faults = 0
+        valgus_errors = 0
 
-    pelvic_history = []
-    knee_flexion_history = []
-    trunk_lean_history = []
-    shoulder_tilt_history = []
+        pelvic_history = []
+        knee_flexion_history = []
+        trunk_lean_history = []
+        shoulder_tilt_history = []
 
-    preview = st.empty()
-    progress_text = st.empty()
-    progress_bar = st.progress(0)
+        preview = st.empty()
+        progress_text = st.empty()
+        progress_bar = st.progress(0)
 
-    frame_stride = 2
+        frame_stride = 2
 
-    with mp_pose.Pose(
-        static_image_mode=False,
-        model_complexity=1,
-        smooth_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    ) as pose:
+        with mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=1,
+            smooth_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        ) as pose:
 
-        while cap.isOpened():
-            ret, frame = cap.read()
+            while cap.isOpened():
+                ret, frame = cap.read()
 
-            if not ret:
-                break
+                if not ret:
+                    break
 
-            current_frame += 1
+                current_frame += 1
 
-            if current_frame % frame_stride != 0:
-                continue
+                if current_frame % frame_stride != 0:
+                    continue
 
-            processed_frames += 1
+                processed_frames += 1
 
-            if total_frames > 0:
-                progress = min(current_frame / total_frames, 1.0)
-                progress_bar.progress(progress)
-                progress_text.text(
-                    f"{label} | {movement_test}: Processing frame {current_frame} of {total_frames}"
-                )
-
-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image.flags.writeable = False
-            results = pose.process(image)
-            image.flags.writeable = True
-
-            warning_text = "NO POSE DETECTED"
-            warning_color = (255, 165, 0)
-
-            if results.pose_landmarks:
-                landmarks = results.pose_landmarks.landmark
-
-                try:
-                    r_hip, r_hip_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_HIP)
-                    r_knee, r_knee_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_KNEE)
-                    r_ankle, r_ankle_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_ANKLE)
-
-                    l_hip, l_hip_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_HIP)
-                    l_knee, l_knee_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_KNEE)
-                    l_ankle, l_ankle_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_ANKLE)
-
-                    r_shoulder, r_shoulder_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_SHOULDER)
-                    l_shoulder, l_shoulder_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_SHOULDER)
-
-                    enough_visibility = visible_enough(
-                        r_hip_vis, r_knee_vis, r_ankle_vis,
-                        l_hip_vis, l_knee_vis, l_ankle_vis,
-                        r_shoulder_vis, l_shoulder_vis,
+                if total_frames > 0:
+                    progress = min(current_frame / total_frames, 1.0)
+                    progress_bar.progress(progress)
+                    progress_text.text(
+                        f"{label} | {movement_test}: Processing frame {current_frame} of {total_frames}"
                     )
 
-                    if not enough_visibility:
+                image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image.flags.writeable = False
+                results = pose.process(image)
+                image.flags.writeable = True
+
+                warning_text = "NO POSE DETECTED"
+                warning_color = (255, 165, 0)
+
+                if results.pose_landmarks:
+                    landmarks = results.pose_landmarks.landmark
+
+                    try:
+                        r_hip, r_hip_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_HIP)
+                        r_knee, r_knee_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_KNEE)
+                        r_ankle, r_ankle_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_ANKLE)
+
+                        l_hip, l_hip_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_HIP)
+                        l_knee, l_knee_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_KNEE)
+                        l_ankle, l_ankle_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_ANKLE)
+
+                        r_shoulder, r_shoulder_vis = get_lm(landmarks, mp_pose.PoseLandmark.RIGHT_SHOULDER)
+                        l_shoulder, l_shoulder_vis = get_lm(landmarks, mp_pose.PoseLandmark.LEFT_SHOULDER)
+
+                        enough_visibility = visible_enough(
+                            r_hip_vis, r_knee_vis, r_ankle_vis,
+                            l_hip_vis, l_knee_vis, l_ankle_vis,
+                            r_shoulder_vis, l_shoulder_vis,
+                        )
+
+                        if not enough_visibility:
+                            low_confidence_frames += 1
+
+                            pelvic_history.append(0)
+                            knee_flexion_history.append(0)
+                            trunk_lean_history.append(0)
+                            shoulder_tilt_history.append(0)
+
+                            warning_text = "LOW CONFIDENCE LANDMARKS"
+                            warning_color = (255, 165, 0)
+
+                        else:
+                            r_knee_angle = calculate_angle(r_hip, r_knee, r_ankle)
+                            l_knee_angle = calculate_angle(l_hip, l_knee, l_ankle)
+
+                            average_knee_angle = (r_knee_angle + l_knee_angle) / 2
+                            knee_flexion = 180 - average_knee_angle
+
+                            pelvic_drop = calculate_pelvic_drop(l_hip, r_hip)
+
+                            trunk_lean = calculate_trunk_lean(
+                                l_shoulder,
+                                r_shoulder,
+                                l_hip,
+                                r_hip,
+                            )
+
+                            shoulder_tilt = calculate_shoulder_tilt(
+                                l_shoulder,
+                                r_shoulder,
+                            )
+
+                            valgus_detected = detect_valgus(
+                                l_knee,
+                                r_knee,
+                                l_ankle,
+                                r_ankle,
+                            )
+
+                            if valgus_detected:
+                                valgus_errors += 1
+
+                            pelvic_history.append(pelvic_drop)
+                            knee_flexion_history.append(knee_flexion)
+                            trunk_lean_history.append(trunk_lean)
+                            shoulder_tilt_history.append(shoulder_tilt)
+
+                            warning_text, warning_color, fault_detected = evaluate_frame_by_test(
+                                movement_test=movement_test,
+                                knee_flexion=knee_flexion,
+                                pelvic_drop=pelvic_drop,
+                                trunk_lean=trunk_lean,
+                                shoulder_tilt=shoulder_tilt,
+                                valgus_detected=valgus_detected,
+                            )
+
+                            if fault_detected:
+                                movement_faults += 1
+
+                    except Exception:
                         low_confidence_frames += 1
 
                         pelvic_history.append(0)
@@ -669,102 +969,46 @@ def analyze_video(uploaded_file, movement_test, label="Video", client_profile=No
                         trunk_lean_history.append(0)
                         shoulder_tilt_history.append(0)
 
-                        warning_text = "LOW CONFIDENCE LANDMARKS"
+                        warning_text = "FRAME SKIPPED"
                         warning_color = (255, 165, 0)
 
-                    else:
-                        r_knee_angle = calculate_angle(r_hip, r_knee, r_ankle)
-                        l_knee_angle = calculate_angle(l_hip, l_knee, l_ankle)
+                    cv2.putText(
+                        image,
+                        warning_text,
+                        (30, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.8,
+                        warning_color,
+                        2,
+                        cv2.LINE_AA,
+                    )
 
-                        average_knee_angle = (r_knee_angle + l_knee_angle) / 2
-                        knee_flexion = 180 - average_knee_angle
+                    mp_drawing.draw_landmarks(
+                        image,
+                        results.pose_landmarks,
+                        mp_pose.POSE_CONNECTIONS,
+                        mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
+                        mp_drawing.DrawingSpec(color=warning_color, thickness=2, circle_radius=2),
+                    )
 
-                        pelvic_drop = calculate_pelvic_drop(l_hip, r_hip)
-
-                        trunk_lean = calculate_trunk_lean(
-                            l_shoulder,
-                            r_shoulder,
-                            l_hip,
-                            r_hip,
-                        )
-
-                        shoulder_tilt = calculate_shoulder_tilt(
-                            l_shoulder,
-                            r_shoulder,
-                        )
-
-                        valgus_detected = detect_valgus(
-                            l_knee,
-                            r_knee,
-                            l_ankle,
-                            r_ankle,
-                        )
-
-                        if valgus_detected:
-                            valgus_errors += 1
-
-                        pelvic_history.append(pelvic_drop)
-                        knee_flexion_history.append(knee_flexion)
-                        trunk_lean_history.append(trunk_lean)
-                        shoulder_tilt_history.append(shoulder_tilt)
-
-                        warning_text, warning_color, fault_detected = evaluate_frame_by_test(
-                            movement_test=movement_test,
-                            knee_flexion=knee_flexion,
-                            pelvic_drop=pelvic_drop,
-                            trunk_lean=trunk_lean,
-                            shoulder_tilt=shoulder_tilt,
-                            valgus_detected=valgus_detected,
-                        )
-
-                        if fault_detected:
-                            movement_faults += 1
-
-                except Exception:
+                else:
                     low_confidence_frames += 1
-
                     pelvic_history.append(0)
                     knee_flexion_history.append(0)
                     trunk_lean_history.append(0)
                     shoulder_tilt_history.append(0)
 
-                    warning_text = "FRAME SKIPPED"
-                    warning_color = (255, 165, 0)
+                preview.image(image, channels="RGB", use_container_width=True)
 
-                cv2.putText(
-                    image,
-                    warning_text,
-                    (30, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    warning_color,
-                    2,
-                    cv2.LINE_AA,
-                )
+        cap.release()
 
-                mp_drawing.draw_landmarks(
-                    image,
-                    results.pose_landmarks,
-                    mp_pose.POSE_CONNECTIONS,
-                    mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
-                    mp_drawing.DrawingSpec(color=warning_color, thickness=2, circle_radius=2),
-                )
-
-            else:
-                low_confidence_frames += 1
-                pelvic_history.append(0)
-                knee_flexion_history.append(0)
-                trunk_lean_history.append(0)
-                shoulder_tilt_history.append(0)
-
-            preview.image(image, channels="RGB", use_container_width=True)
-
-    cap.release()
-
-    try:
-        os.remove(video_path)
-    except Exception:
-        pass
+    finally:
+        # Robust temp file cleanup guaranteed to execute even if the CV2 loop crashes
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+        except Exception as e:
+            st.warning(f"Could not remove temporary video file: {e}")
 
     preview.empty()
     progress_text.empty()
@@ -775,9 +1019,14 @@ def analyze_video(uploaded_file, movement_test, label="Video", client_profile=No
 
     valid_frames = max(processed_frames - low_confidence_frames, 1)
 
+    tracking_confidence_rate = (
+        (processed_frames - low_confidence_frames) / processed_frames * 100
+    )
+
     report = {
         "label": label,
         "movement_test": movement_test,
+        "camera_view": camera_view,
         "client_profile": client_profile or {},
 
         "fps": fps,
@@ -799,13 +1048,19 @@ def analyze_video(uploaded_file, movement_test, label="Video", client_profile=No
 
         "valgus_rate": valgus_errors / valid_frames * 100,
         "movement_fault_rate": movement_faults / valid_frames * 100,
-        "tracking_confidence_rate": (processed_frames - low_confidence_frames) / processed_frames * 100,
+        "tracking_confidence_rate": tracking_confidence_rate,
 
         "pelvic_history": pelvic_history,
         "knee_flexion_history": knee_flexion_history,
         "trunk_lean_history": trunk_lean_history,
         "shoulder_tilt_history": shoulder_tilt_history,
     }
+
+    report["camera_reliability"] = assess_camera_reliability(
+        movement_test=movement_test,
+        camera_view=camera_view,
+        tracking_confidence_rate=report["tracking_confidence_rate"],
+    )
 
     report["notes"] = generate_notes(report)
 
@@ -816,6 +1071,13 @@ def analyze_video(uploaded_file, movement_test, label="Video", client_profile=No
 # REPORT HISTORY
 # -------------------------------------------------
 def save_report_history(report):
+    # ------------------------------------------------------------------------
+    # DEPLOYMENT NOTE:
+    # When deploying to a stateless environment, swap this local CSV writing 
+    # logic with a cloud database insert (e.g. Supabase) so your data 
+    # persists across redeploys.
+    # ------------------------------------------------------------------------
+    
     os.makedirs("reports", exist_ok=True)
 
     history_path = "reports/report_history.csv"
@@ -829,6 +1091,9 @@ def save_report_history(report):
         "client_activity": client.get("client_activity", ""),
         "coach_name": client.get("coach_name", ""),
         "movement_test": report.get("movement_test", ""),
+        "camera_view": report.get("camera_view", ""),
+        "camera_reliability_label": report.get("camera_reliability", {}).get("label", ""),
+        "camera_reliability_score": report.get("camera_reliability", {}).get("score", 0),
         "label": report.get("label", ""),
 
         "max_pelvic_drop": report.get("max_pelvic_drop", 0),
@@ -898,8 +1163,37 @@ def show_history_dashboard():
 def show_report(report):
     st.header(f"📊 Final Biomechanical Report: {report['label']}")
 
-    st.info(f"Movement Test: **{report['movement_test']}**")
+    st.info(
+        f"Movement Test: **{report['movement_test']}** | "
+        f"Camera View: **{report.get('camera_view', 'Not selected')}**"
+    )
+
     st.caption(MOVEMENT_TESTS[report["movement_test"]]["description"])
+
+    reliability = report.get("camera_reliability", {})
+    reliability_label = reliability.get("label", "Unknown")
+    reliability_score = reliability.get("score", 0)
+
+    if reliability_label == "High":
+        st.success(f"Camera Reliability: {reliability_label} — {reliability_score}/100")
+    elif reliability_label == "Medium":
+        st.warning(f"Camera Reliability: {reliability_label} — {reliability_score}/100")
+    else:
+        st.error(f"Camera Reliability: {reliability_label} — {reliability_score}/100")
+
+    with st.expander("Camera Reliability Details", expanded=False):
+        st.write(f"**Selected View:** {report.get('camera_view', 'Not selected')}")
+        st.write(f"**Reliability Score:** {reliability_score}/100")
+
+        if reliability.get("strengths"):
+            st.write("**Strengths:**")
+            for item in reliability.get("strengths", []):
+                st.success(item)
+
+        if reliability.get("warnings"):
+            st.write("**Warnings:**")
+            for item in reliability.get("warnings", []):
+                st.warning(item)
 
     client = report.get("client_profile", {})
 
@@ -988,6 +1282,12 @@ def show_report(report):
             "low",
             "warning",
             "poor",
+            "weak",
+            "less reliable",
+            "not ideal",
+            "diagonal",
+            "unknown",
+            "moderate",
         ]
 
         if any(word in note.lower() for word in warning_keywords):
@@ -1042,10 +1342,14 @@ def show_report(report):
 def compare_reports(before, after):
     st.header("🔁 Side-by-Side Comparison")
 
-    st.info(f"Comparison Mode: **{before['movement_test']}**")
+    st.info(
+        f"Comparison Mode: **{before['movement_test']}** | "
+        f"Camera View: **{before.get('camera_view', 'Not selected')}**"
+    )
 
     comparison = pd.DataFrame({
         "Metric": [
+            "Camera Reliability",
             "Max Pelvic Drop",
             "Average Pelvic Drop",
             "Max Knee Flexion",
@@ -1059,6 +1363,7 @@ def compare_reports(before, after):
             "Tracking Confidence",
         ],
         "Before": [
+            f"{before.get('camera_reliability', {}).get('label', 'Unknown')} - {before.get('camera_reliability', {}).get('score', 0)}/100",
             f"{before['max_pelvic_drop']:.1f}°",
             f"{before['avg_pelvic_drop']:.1f}°",
             f"{before['max_knee_flexion']:.1f}°",
@@ -1072,6 +1377,7 @@ def compare_reports(before, after):
             f"{before['tracking_confidence_rate']:.1f}%",
         ],
         "After": [
+            f"{after.get('camera_reliability', {}).get('label', 'Unknown')} - {after.get('camera_reliability', {}).get('score', 0)}/100",
             f"{after['max_pelvic_drop']:.1f}°",
             f"{after['avg_pelvic_drop']:.1f}°",
             f"{after['max_knee_flexion']:.1f}°",
@@ -1165,6 +1471,38 @@ with st.expander("What this test measures"):
     for metric in MOVEMENT_TESTS[movement_test]["primary_metrics"]:
         st.write(f"• {metric}")
 
+camera_view = st.selectbox(
+    "Choose Camera View",
+    [
+        "Front View",
+        "Side View",
+        "Rear View",
+        "Diagonal / Unknown",
+    ],
+)
+
+st.caption(f"Camera View Guidance: {CAMERA_VIEWS[camera_view]['description']}")
+
+with st.expander("Camera setup guidance"):
+    st.write("**This view is best for:**")
+    for item in CAMERA_VIEWS[camera_view]["best_for"]:
+        st.write(f"• {item}")
+
+    st.write("**This view is weak for:**")
+    for item in CAMERA_VIEWS[camera_view]["weak_for"]:
+        st.write(f"• {item}")
+
+    st.write("**Filming rules for better results:**")
+    st.write("• Keep the full body visible from head to feet.")
+    st.write("• Keep the camera still.")
+    st.write("• Avoid diagonal angles unless doing a rough screen.")
+    st.write("• Use good lighting.")
+    st.write("• Keep the athlete centered in the frame.")
+    st.write("• For squat depth, use side view.")
+    st.write("• For knee valgus, use front view.")
+    st.write("• For gait pelvic drop, use rear or front view.")
+
+
 if analysis_type == "Single Video Analysis":
     uploaded_video = st.file_uploader(
         "Upload Movement Video",
@@ -1175,6 +1513,7 @@ if analysis_type == "Single Video Analysis":
         report = analyze_video(
             uploaded_video,
             movement_test=movement_test,
+            camera_view=camera_view,
             label="Single Video Report",
             client_profile=client_profile,
         )
@@ -1205,6 +1544,7 @@ else:
         before_report = analyze_video(
             before_video,
             movement_test=movement_test,
+            camera_view=camera_view,
             label="Before Report",
             client_profile=client_profile,
         )
@@ -1214,6 +1554,7 @@ else:
         after_report = analyze_video(
             after_video,
             movement_test=movement_test,
+            camera_view=camera_view,
             label="After Report",
             client_profile=client_profile,
         )
@@ -1222,5 +1563,6 @@ else:
             show_report(before_report)
             show_report(after_report)
             compare_reports(before_report, after_report)
+
 
 show_history_dashboard()
