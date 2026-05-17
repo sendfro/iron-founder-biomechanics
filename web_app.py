@@ -562,7 +562,7 @@ def analyze_video(uploaded_file, movement_test, camera_view, label="Video", clie
         # V5.0 Optimization: static_image_mode=False and model_complexity=0 for speed & temporal tracking
         with mp_pose.Pose(
             static_image_mode=False, 
-            model_complexity=0, 
+            model_complexity=1, 
             smooth_landmarks=True, 
             min_detection_confidence=0.5, 
             min_tracking_confidence=0.5
