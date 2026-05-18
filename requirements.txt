@@ -6,3 +6,4 @@ pandas
 matplotlib
 reportlab
 protobuf==4.25.3
+ultralytics
