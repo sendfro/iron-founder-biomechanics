@@ -1,9 +1,9 @@
 streamlit
-mediapipe==0.10.14
-numpy==1.26.4
-opencv-python-headless==4.10.0.84
+torch>=1.8.0
+numpy>=1.23.0
+opencv-python-headless>=4.6.0
 pandas
 matplotlib
 reportlab
-protobuf==4.25.3
+torchvision>=0.9.0
 ultralytics
