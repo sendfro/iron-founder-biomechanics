@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+opencv-python-headless
+ultralytics
+chromadb
+sentence-transformers
+google-genai
+requests
+fpdf

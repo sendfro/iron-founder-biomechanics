@@ -1,0 +1,16 @@
+# Ignore Virtual Environments
+venv/
+env/
+.venv/
+
+# Ignore heavy video files
+*.mp4
+*.mov
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore the local CRM database (the cloud server will make its own fresh one)
+*.db
+*.sqlite3
