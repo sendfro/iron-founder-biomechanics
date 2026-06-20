@@ -9,7 +9,8 @@ print("🧠 Initializing Cloud-Powered Generative AI Coaching Layer...")
 # 1. SETUP CLOUD LLM ENGINE (GEMINI API)
 # ==================================================
 # PASTE YOUR GOOGLE AI STUDIO API KEY HERE:
-GEMINI_API_KEY = "YOUR_API_KEY_HERE"
+import streamlit as st
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
 # Initialize the blazing fast Gemini client
 client = genai.Client(api_key=GEMINI_API_KEY)

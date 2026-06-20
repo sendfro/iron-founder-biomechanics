@@ -42,7 +42,8 @@ init_db()
 # ==================================================
 # 2. GENERATIVE AI & RAG SETUP
 # ==================================================
-GEMINI_API_KEY = "YOUR_API_KEY_HERE"
+import streamlit as st
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
 try: ai_client = genai.Client(api_key=GEMINI_API_KEY)
 except: ai_client = None
