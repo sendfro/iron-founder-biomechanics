@@ -8,3 +8,4 @@ sentence-transformers
 google-genai
 requests
 fpdf
+protobuf<4.0.0
